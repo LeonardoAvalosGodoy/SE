@@ -1,95 +1,86 @@
 #include <stdio.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/queue.h>
-#include <driver/gpio.h>
-#include "esp_timer.h"
-#include "freertos/event_groups.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
 
 
-int botones[] = {21,19};
-int leds[]={25,26,27};
+//Escriba un programa que crea dos tareas, denominadas A y B. La tarea A parpadea un
+//LED a la velocidad indicada por la tarea B. La tarea B le envía la velocidad en
+//milisegundos por medio de una cola. La velocidad inicial que envía la tarea B es 100
+//ms. La tarea B lee el estado de un botón y cada vez que el usuario lo presiona
+//decrementa la velocidad en 100 ms. Por ejemplo, si el usuario presiona una vez el
+//botón, la velocidad de parpadeo pasa de 100 a 200 ms.
 
-QueueHandle_t handlerQueue;
+QueueHandle_t HandlerQueue;
 
-int bandera = 0;
-int state = 0;
-TaskHandle_t handleTarea1 = NULL;
-TaskHandle_t handleTarea2 = NULL;
+TaskHandle_t Handlertarea1;
+TaskHandle_t Handlertarea2;
 
-volatile int velocidad = 100;
+volatile int bandera;
 
-volatile uint64_t last_time = 0;
+int velocidad = 100;
 
 static void IRAM_ATTR gpio_interrupt_handler(void *args){
-  int pinNumber = (int)args;
-  uint64_t time = esp_timer_get_time() / 1000;
-  if (time - last_time > 200){
-    last_time = time;
-    xQueueSendFromISR(handlerQueue, &pinNumber, NULL);
+  if(bandera == 0){
+    bandera = 1;
+    int pinNumber = (int)args;
+    xQueueSendFromISR(HandlerQueue, &pinNumber, NULL);
+  }
+}
 
+void init_gpio(){
+  //led
+  gpio_reset_pin(GPIO_NUM_21);
+  gpio_set_direction(GPIO_NUM_21,GPIO_MODE_OUTPUT);
+  gpio_set_level(GPIO_NUM_21,0);
+
+  //boton
+  gpio_reset_pin(GPIO_NUM_19);
+  gpio_set_direction(GPIO_NUM_19,GPIO_MODE_INPUT);
+
+  gpio_pullup_dis(GPIO_NUM_19);
+  gpio_pulldown_en(GPIO_NUM_19);
+
+  gpio_set_intr_type(GPIO_NUM_19,GPIO_INTR_POSEDGE);
+  gpio_isr_handler_add(GPIO_NUM_19,gpio_interrupt_handler,(void *)GPIO_NUM_19);
+}
+
+void tareaA(void *args){
+  while(1){
+  gpio_set_level(GPIO_NUM_21,0);
+  vTaskDelay (velocidad / portTICK_PERIOD_MS);
+  gpio_set_level(GPIO_NUM_21,1);
+  vTaskDelay ( velocidad / portTICK_PERIOD_MS);
+}
+}
+
+void tareaB(void *args){
+  int pinNumber;
+
+  while(1){
+    if(xQueueReceive(HandlerQueue, &pinNumber, portMAX_DELAY)){
+    velocidad = velocidad + 100;
+
+  
+    if(velocidad >= 2000){
+        printf("Reinciando velocidad\n");
+        velocidad = 100;
+      }
+    printf("%d\n",velocidad);
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+    bandera = 0;
+    }
   }
 }
 
 
+void app_main(){
+  gpio_install_isr_service(0);
+  init_gpio();
 
-void init_gpio(void){
-    for(int i=0; i < 2; i++){
-        gpio_reset_pin(botones[i]);
-        gpio_set_direction(botones[i],GPIO_MODE_INPUT   );
+  HandlerQueue = xQueueCreate(10,sizeof(int));
 
-        gpio_pulldown_en(botones[i]);
-        gpio_pullup_dis(botones[i]);
+  xTaskCreate(tareaA,"tareaA",2048,NULL,10,&Handlertarea1);
+  xTaskCreate(tareaB,"tareaB",2048,NULL,10,&Handlertarea2);
 
-        gpio_set_intr_type(botones[i],GPIO_INTR_POSEDGE);
-        gpio_isr_handler_add(botones[i],gpio_interrupt_handler,(void *)i);
-        
-    }
-    for(int i=0; i < 3 ; i++ ){
-        gpio_reset_pin(leds[i]);
-        gpio_set_direction(leds[i],GPIO_MODE_OUTPUT);
-        gpio_set_level(leds[i],0);
-    }
-}
-
-void tareaA(void *arg){
-    while(1){
-        gpio_set_level(leds[0],0);
-        vTaskDelay(velocidad / portTICK_PERIOD_MS);
-
-        gpio_set_level(leds[0],1);
-        vTaskDelay(velocidad / portTICK_PERIOD_MS);
-
-    }
-}
-
-void tareaB(void *arg){
-
-    int pinNumber;
-    while(1){
-      if (xQueueReceive(handlerQueue, &pinNumber, portMAX_DELAY)){
-       vTaskDelay(20 / portTICK_PERIOD_MS);
-       
-        velocidad = velocidad + 100;
-
-        if(velocidad >= 2000){
-            velocidad = 100;
-            printf ("Velocidad reiniciada\n");
-        }
-    
-            printf ("Se ha incrementado %d ms de velocidad\n",velocidad);
-    }
-}
-}
-
-
-void app_main(void){
-
-    handlerQueue = xQueueCreate(10, sizeof(int));
-
-    xTaskCreate(tareaA, "tareaA", 2048, NULL, 10 , &handleTarea1);
-    xTaskCreate(tareaB, "tareaB", 2048, NULL, 10 , &handleTarea2);
-
-    gpio_install_isr_service(0);
-    init_gpio();
 }
