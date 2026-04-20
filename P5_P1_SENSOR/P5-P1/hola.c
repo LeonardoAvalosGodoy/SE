@@ -347,7 +347,6 @@ static void tarea_boton(void *arg){
             clicks++;
         }
 
-        // CAMBIO: doble_listo solo se procesa cuando ya no hay más eventos (timeout)
         bool timeout = !hay_evento && clicks > 0;
 
         if (timeout){
@@ -371,11 +370,11 @@ static void tarea_boton(void *arg){
 
 void app_main(void)
 {
-    init_uart0();  // CAMBIO 4: init_uart → init_uart0
+    init_uart0();  
     init_spi();
     init_gpio();
 
-    btn_queue = xQueueCreate(10, sizeof(TickType_t));  // CAMBIO 3: int → TickType_t
+    btn_queue = xQueueCreate(10, sizeof(TickType_t));  
     mutex     = xSemaphoreCreateMutex();
 
     init_bmp280();
